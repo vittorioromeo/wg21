@@ -228,10 +228,7 @@ I am not sure whether `target` and `target_type` can be implemented without intr
   - [Motivating example](#motivating-example)
   - [Impact on the Standard](#impact-on-the-standard)
   - [Alternatives](#alternatives)
-  - [Changes to `<functional>` header](#changes-to-functional-header)
-  - [Class synopsis](#class-synopsis)
   - [Specification](#specification)
-  - [Feature test macro](#feature-test-macro)
   - [Example implementation](#example-implementation)
   - [Existing practice](#existing-practice)
   - [Possible issues](#possible-issues)
@@ -461,187 +458,148 @@ Using `std::function` for non-owning references is suboptimal for various reason
 
 
 
-## Changes to `<functional>` header
-
-Add the following to `[functional.syn]`:
-
-> ```cpp
-> namespace std
-> {
->     // ...
->
->     template <typename Signature> class function_ref;
->
->     template <typename Signature>
->     void swap(function_ref<Signature>& lhs, function_ref<Signature>& rhs) noexcept;
->
->     // ...
-> }
-> ```
-
-
-
-## Class synopsis
-
-Create a new section "Class template `function_ref`", `[functionref]`" with the following:
-
-> ```cpp
-> namespace std
-> {
->     template <typename Signature>
->     class function_ref
->     {
->         void* erased_object; // exposition only
->
->         R(*erased_function)(Args...); // exposition only
->         // `R`, and `Args...` are the return type, and the parameter-type-list,
->         // of the function type `Signature`, respectively.
->
->     public:
->         function_ref(const function_ref&) noexcept = default;
->
->         template <typename F>
->         function_ref(F&&);
->
->         function_ref& operator=(const function_ref&) noexcept = default;
->
->         template <typename F>
->         function_ref& operator=(F&&);
->
->         void swap(function_ref&) noexcept;
->
->         R operator()(Args...) const noexcept(see below);
->         // `R` and `Args...` are the return type and the parameter-type-list
->         // of the function type `Signature`, respectively.
->     };
->
->     template <typename Signature>
->     void swap(function_ref<Signature>&, function_ref<Signature>&) noexcept;
->
->     template <typename R, typename... Args>
->     function_ref(R (*)(Args...)) -> function_ref<R(Args...)>;
->
->     template <typename R, typename... Args>
->     function_ref(R (*)(Args...) noexcept) -> function_ref<R(Args...) noexcept>;
->
->     template <typename F>
->     function_ref(F) -> function_ref<see below>;
-> }
-> ```
->
-> 1. `function_ref<Signature>` is a `Cpp17CopyConstructible` and `Cpp17CopyAssignable` reference to an `Invocable` object with signature `Signature`.
->
-> 2. `function_ref<Signature>` is a trivially copyable type.
->
-> 3. The template argument `Signature` shall be a non-`volatile`-qualified function type.
-
-
-
-
-
-
-
 ## Specification
 
-```cpp
-template <typename F>
-function_ref(F&& f);
-```
+> The following is relative to N4901.[5]
+> 
+> Insert the following in Header synopsis [version.syn], in section 2, below #define __cpp_lib_memory_resource 201603L
+> ```cpp
+> #define __cpp_lib_function_ref 20XXXXL // also in <functional>
+> ```
+> Let SECTION is a placeholder for the root of the section numbering for [functional].
+> 
+> Insert the following section in Header `<functional>` synopsis [functional.syn], at the end of SECTION.20, polymorphic function wrappers
+> ```cpp
+> template<class... S> class function_ref; // not defined
+> 
+> // Set of partial specializations of function_ref
+> template<class R, class... ArgTypes>
+>   class function_ref<R(ArgTypes...) cv noexcept(noex)>; // ... see below
+> ```
+> Insert the following section at the end of Polymorphic function wrapper [func.wrap] at the end.
+> 
+> ###	SECTION.20.3 function_ref                                 [func.wrap.ref]
+> 
+>  1  The header provides partial specializations of function_ref for
+> 	each combination of the possible replacements of the placeholders *cv* and
+> 	*noex* where:
+> 
+> (1.1)   — *cv* is either const or empty.
+> 
+> (1.2)   — *noex* is either true or false.
+> 
+>  2  For each of the possible combinations of the placeholders mentioned above,
+> 	there is a placeholder inv-quals defined as follows:
+> 
+> (2.1)   — Let *inv-quals* be *cv*&
+> 
+> ###	SECTION.20.3.1 Class template function_ref            [func.wrap.ref.class]
+> ```cpp
+> namespace std {
+> template<class... S> class function_ref; // not defined
+> 
+> template<class R, class... ArgTypes>
+> class function_ref<R(ArgTypes...) cv noexcept(noex)> {
+> public:
+>   using result_type = R;
+> 
+>   // SECTION.20.3.2, construct/move/destroy
+>   function_ref() noexcept;
+>   function_ref(function_ref&&) noexcept;
+>   template<class F> function_ref(F&&);
+>
+>   function_ref& operator=(function_ref&&);
+>   template<class F> function_ref& operator=(F&&);
+> 
+>   ~function_ref();
+> 
+>   // SECTION.20.3.3, function_ref invocation
+>   R operator()(ArgTypes...) cv noexcept(noex);
+> 
+>   // SECTION.20.3.4, function_ref utility
+>   void swap(function_ref&) noexcept;
+> 
+>   friend void swap(function_ref&, function_ref&) noexcept;
+> 
+> private:
+>   template<class VT>
+> 	static constexpr bool is-callable-from = see below; // exposition-only
+> };
+> }
+> ```
+> 1  The function_ref class template provides polymorphic wrappers that generalize
+> the notion of a callable object [func.def]. These wrappers can reference and
+> call arbitrary callable objects, given a call signature, allowing functions to
+> be first-class objects.
+> 
+> 2  Implementations are encouraged to avoid the use of dynamically allocated memory under any circumstance.
+> 
+> ### SECTION.20.3.3  Constructors and destructor                              [func.wrap.ref.con]
+> ```cpp
+> template<class VT>
+> 	  static constexpr bool is-callable-from = see below; // exposition-only
+> ```
+> 1  If noex is `true`, `is-callable-from<VT>` is equal to
+>   `is_nothrow_invocable_r_v<R, VT cv ref, Args...> &&`
+> 	`is_nothrow_invocable_r_v<R, VT inv-quals, Args...>`.
+> Otherwise, `is-callable-from<VT>` is equal to
+>   `is_invocable_r_v<R, VT cv ref, Args...> &&`
+> 	`is_invocable_r_v<R, VT inv-quals, Args...>`.
+> ```cpp
+> function_ref(function_ref& f) noexcept;
+> ```
+> 2        *Postconditions:* This constructor trivially copies the function_ref.
+> ```cpp
+> template<class F> function_ref(F&& f);
+> ```
+> 3        Let VT be `decay_t<F>`.
+> 
+> 4        *Constraints:*
+> 
+> (4.1)            — `remove_cvref_t<F>` is not the same type as function_ref, and
+> 
+> (4.2)            — `is-callable-from<VT>` is `true`.
+> 
+> (4.3)            — `F` is `Callable` or a free function.
+> 
+> 5        *Mandates:* `is_constructible_v<VT, F>` is `true`
+> 
+> 6        *Preconditions:* VT meets the Cpp17Destructible requirements, and if
+> 	  `is_move_constructible_v<VT>` is `true`, VT meets the Cpp17MoveConstructible
+> 	  requirements.
+> 
+> 7        *Postconditions:* `*this` has a reference to a target object
+> ```cpp
+> function_ref& operator=(function_ref&& f);
+> ```
+> 10        *Effects:* This assignment operator is trivial.
+> 
+> 11        *Returns:* `*this`.
+> ```cpp
+> ~function_ref();
+> ```
+> 12        *Effects:* The destructor is trivial.
+> 
+> ### SECTION.20.3.4  Invocation                                              [func.wrap.ref.inv]
+> ```cpp
+> R operator()(ArgTypes... args) cv noexcept(noex);
+> ```
+> 1        *Preconditions:* `*this` has a reference to a target object.
+> 
+> 2        *Effects:* Equivalent to:
+> 	  `return INVOKE<R>(static_cast<F inv-quals>(f), std::forward<ArgTypes>(args)...);`
+> 	  where f is a reference to a target object of `*this` and f is lvalue of type F.
+> 
+> ### SECTION.20.3.5  Utility                                                 [func.wrap.ref.util]
+> ```cpp
+> void swap(function_ref& other) noexcept;
+> ```
+> 1        *Effects:* Exchanges the targets of `*this` and other.
+> ```cpp
+> friend void swap(function_ref& f1, function_ref& f2) noexcept;
+> ```
+> 2        *Effects:* Equivalent to: `f1.swap(f2)`.
 
-* *Constraints:* `is_same_v<remove_cvref_t<F>, function_ref>` is `false` and
-
-    * If `Signature` has a `noexcept` specifier: `is_nothrow_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`;
-
-    * Otherwise: `is_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`.
-
-    Where `R`, `Args...`, and `cv-qualifiers` are the *return type*, the *parameter-type-list*, and the sequence "*cv-qualifier-seq-opt*" of the function type `Signature`, respectively.
-
-* *Expects:* `f` is neither a null function pointer value nor a null member pointer value.
-
-* *Effects:* Constructs a `function_ref` referring to `f`.
-
-* *Remarks:* `erased_object` will point to `f`. `erased_function` will point to a function whose invocation is equivalent to `return INVOKE<R>(f, std::forward<Args>(xs)...);`, where `f` is qualified with the same *cv-qualifiers* as the function type `Signature`.
-
-<br>
-
-
-
-```cpp
-template <typename F>
-function_ref& operator=(F&&);
-```
-
-* *Constraints:* `is_same_v<remove_cvref_t<F>, function_ref>` is `false` and
-
-    * If `Signature` has a `noexcept` specifier: `is_nothrow_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`;
-
-    * Otherwise: `is_invocable_r_v<R, cv-qualifiers F&, Args...>` is `true`.
-
-    Where `R`, `Args...`, and `cv-qualifiers` are the *return type*, the *parameter-type-list*, and the sequence "*cv-qualifier-seq-opt*" of the function type `Signature`, respectively.
-
-* *Expects:* `f` is neither a null function pointer value nor a null member pointer value.
-
-* *Ensures:* `*this` refers to `f`.
-
-* *Returns:* `*this`.
-
-<br>
-
-
-
-```cpp
-void swap(function_ref& rhs) noexcept;
-```
-
-* *Effects:* Exchanges the values of `*this` and `rhs`.
-
-<br>
-
-
-
-```cpp
-R operator()(Args... xs) noexcept(see below);
-```
-
-* *Effects:* Equivalent to `return INVOKE<R>(f, std::forward<Args>(xs)...);`, where `f` is the callable object referred to by `*this`, qualified with the same *cv-qualifiers* as the function type `Signature`.
-
-* *Remarks:* `R` and `Args...` are the return type and the parameter-type-list of the function type `Signature`, respectively. The expression inside `noexcept` is the sequence "noexcept-specifier-opt" of the function type `Signature`.
-
-<br>
-
-
-
-```cpp
-template <typename F>
-function_ref(F) -> function_ref<see below>;
-```
-
-* *Constraints:* `&F::operator()` is well-formed when treated as an unevaluated operand.
-
-* *Remarks:* If `decltype(&F::operator())` is of the form `R(G::*)(A...) qualifiers` for a class type `G`, then the deduced type is `function_ref<R(A...) qualifiers>`.
-
-<br>
-
-
-
-```cpp
-template <typename Signature>
-void swap(function_ref<Signature>& lhs, function_ref<Signature>& rhs) noexcept;
-```
-
-* *Effects:* Equivalent to `lhs.swap(rhs)`.
-
-<br>
-
-
-
-## Feature test macro
-
-Append to §17.3.1 General `[support.limits.general]`'s Table 36 one additional entry:
-
-| Macro name             | Value   | Headers        |
-|------------------------|---------|----------------|
-| __cpp_lib_function_ref | 201811L | `<functional>` |
 
 
 
